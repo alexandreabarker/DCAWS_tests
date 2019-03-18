@@ -5,10 +5,11 @@ void setupSD()
   pinMode(chipSelect, OUTPUT); //For the SD Card to work
   if (!SD.begin(chipSelect))
   {
-    radio.println(F("initialization failed!"));
+    radio.println("initialization failed!");
     return;
   }
-  dcawsLog = SD.open("dcawsLog.csv", FILE_WRITE);
+  DCAWS_Depth = SD.open("DCAWS_Depth.csv", FILE_WRITE);
+  DCAWS_GPS = SD.open("DCAWS_GPS.csv", FILE_WRITE);
 }
 
 void checkSD()
@@ -20,17 +21,8 @@ void checkSD()
     return;
   }
   radio.print(F("SD card initialization confirmed and found files: "));
-  if (dcawsLog)
-    radio.print(F("dcawsLog, "));
-}
-
-
-void logData()
-{
-  if(dcawsLog)
-  {
-    //File dcawsLog = SD.open("dcawsLog.csv", FILE_WRITE);  
-    dcawsLog.println(dataString);
-    dcawsLog.flush();  
-  }
+  if (DCAWS_Depth)
+    radio.print(F("DCAWS_Depth, "));
+  if (DCAWS_GPS)
+    radio.println(F("DCAWS_GPS"));
 }

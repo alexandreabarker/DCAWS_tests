@@ -1,7 +1,7 @@
 // Alex Barker and Adam Hall
-// 3/18/2019
+// 3/04/2019
 // Code to run autonomous water sampler DCAWS
-// Changes from previous version: changed logging style, finished abort state
+// Changes from previous version: verified safety check codes, variable overhaul.
 
 // include libraries
 #include <Adafruit_GPS.h>
@@ -39,8 +39,7 @@ Servo servo;
 #define chipSelect BUILTIN_SDCARD
 
 //declare constants
-#define OFFSET .6606                      // distance between pressure sensor and solenoid inlets
-#define STOP_SIGNAL 1500                  // PWM signal that stops thruster
+#define STOP_SIGNAL 1500                  //PWM signal that stops thruster
 #define SETUP_DELAY 1000                  // time delay for setup signals
 #define MAX_GPS_TIME 120000               // 2min cutoff for GPS to recieve new signal
 #define RES 1024.0                        // 10 bit resolution for adc conversion
@@ -57,25 +56,25 @@ Servo servo;
 #define GPS_DRIFT_TIME 60000             // desired duration of drift state in milliseconds
 #define WINSZ_GPS 100                    // window size used for GPS of 100
 #define MIN_GPS_NUM  10                  // Minimum number of good gps readings taken during GPS_DRIFT to consider successful
-#define PID_RANGE -2                     // Range in m at which PID implements full control
+#define PID_RANGE -2
 #define HOLD_TOL .2                      // declare tolerance on hold
-#define KP 2.6                           
+#define KP 2.6
 #define KI .225
 #define KD 10
 #define FBPOS 5                          // positive buoyancy of system
 #define A .09                            // Area of attack of system (m^2)
 #define CD .38                           //the drag coefficient of system from solidworks
 #define M 10.5                           // Mass of system (kg)
-#define T_GAIN 39.84063745
-#define MIN_PWM 1525
-#define MAX_PWM 1900
+#define T_GAIN 17.98561151
 #define HOLD_TIME  10000                 //hold time of ten seconds for depth and sample
 #define SURF_NUM 10                      //number of times for pressure sensor to read surface value before claiming surface
 #define GPS_SEND_FREQ 50000
-
-
+int fuck;
+int doublefuck = 1;
+double leakVoltage;
 //declare variables
-File dcawsLog;                        // Create file on the sd card to log depth
+File DCAWS_Depth;                        // Create file on the sd card to log depth
+File DCAWS_GPS;                          // Create file on the sd card to log GPS
 bool missionReady = true;                // Create bool to track mission status through diagnostics
 bool initCheckGPS = true;
 bool newGPS = false;
@@ -84,9 +83,6 @@ double depth;                            // variable to hold depth
 double current;                          // variable for internal current
 double temperature;                      // variable for internal temp
 double pressure;                         // variable for internal pressure
-double leakVoltage;
-String errorString = "";
-bool lowPow = false;
 double avgDepth;                         // variable for avg Depth after going through moving average
 bool avgInitZ = true;                    // declare initial mvavg flag for depth true
 double pidDepth;                         // will use if want avgDepth updated at 10hz
@@ -96,9 +92,9 @@ double avgLat;
 double avgLon;
 int targetCount = 1;
 int targetDepth;
-int targetDepth1 = 10 + OFFSET;
-int targetDepth2 = 15 + OFFSET;
-int targetDepth3 = 20 + OFFSET;
+int targetDepth1 = 10;
+int targetDepth2 = 15;
+int targetDepth3 = 20;
 float pidError = 0;
 float Fb = (M*g) + FBPOS;               // calculate total buoyancy force of system
 float thrust;
@@ -125,26 +121,32 @@ void setup()
   //initialize components
   setupRadio();
   setupThruster();
+  //delay(1000);
   setupGPS();
+  //delay(1000);
   setupSD();
+  //delay(1000);
   setupSolenoids();
-  delay(SETUP_DELAY);
-  
+  delay(1000);
   //prior to deployment conduct system Diagnosis and wait for user command to continue
   while(go != 'y')
   { 
     //run a system diagnostic 
     systemDiagnosis();
-    radio.print(F("Send 'y' (yes) to begin mission "));
-    radio.print(F("or enter any other key to rerun diagnostic."));
-    if(radio.available())
+    radio.println(F("Send 'y' (yes) to begin mission "));
+    radio.println(F("or enter any other key to rerun diagnostic."));
+    while(!radio.available())
       {
-        go = radio.read();
-      }    
+        
+      } 
+    go = radio.read(); 
+    //radio.println(go); 
   }
-  state = GPS_DRIFT;
+  digitalWrite(SOLENOID_1, LOW);
+  digitalWrite(SOLENOID_2, LOW);
+  digitalWrite(SOLENOID_3, LOW);
+  state = SAMPLE_MISSION;
   timerDepth.begin(getDepth, 10000);
-
 }
 
 //create timer for mission
@@ -159,93 +161,99 @@ elapsedMillis sinceTrigger;
 
 void loop()
 {
-  if(!lowPow)
+  //pause interrupts and make copy of current depth reading
+  noInterrupts();
+  double depthCopy = depth;
+  interrupts();
+  // average pressure (not sure if moving avg right)
+  //mvavgDepth(depthCopy, avgInitZ);
+  //avgInitZ = false;
+  // update depth log (and set depth for pid) at rate of 10Hz
+  if (sinceDataFreq >= DATA_HZ)
   {
-    //pause interrupts and make copy of current depth reading
-    noInterrupts();
-    double depthCopy = depth;
-    interrupts();
-    // average pressure (not sure if moving avg right)
-    mvavgDepth(depthCopy, avgInitZ);
-    avgInitZ = false;
-    // update depth log (and set depth for pid) at rate of 10Hz
-    String dataString = "";
-    dataString = String(sinceDataFreq)+ "," + String(depthCopy)+ "," + String(avgDepth);
-    if(state == GPS_DRIFT || state == GPS_FINAL)
-      dataString += "," + String(GPS.Latitude)+ ","String(GPS.Longitude)+ "," + String(avgLat)+ "," + String(avgLong);
-    if(state == ABORT)
-      dataString += "," + errorString;
-    if (sinceDataFreq >= DATA_HZ)
-    {
-      logData();
-      /*if(certain conditions)
-        dcawsLog.close()*/
-      pidDepth = avgDepth;
-      checkSafetySensors();
-      sinceDataFreq = 0;
-    }
+    logDepth();
+    pidDepth = depthCopy;
+    checkSafetySensors();
+    sinceDataFreq = 0;
   }
   switch (state)
   {
-    case GPS_DRIFT:
-      if (sinceStart < GPS_DRIFT_TIME)
-      {
-        getGPS();
-        if (newGPS)
+    case SAMPLE_MISSION:
+//    //radio.println(F("entering sample mission state"));
+//    //radio.println(F(" pid depth reading"));
+//    //radio.println(pidDepth);
+//    if(pidDepth < 0)
+//    {
+//        if (targetCount ==1)
+//        {
+//          radio.println(F("taking sample 1"));
+//          takeSample(1);
+//          if(sampleTaken)
+//          {
+//            initSample = true;
+//          }
+//        }
+//        if(targetCount==2)
+//        {
+//          //radio.println(F("taking sample 2"));
+//          takeSample(2);
+//          if(sampleTaken)
+//          {
+//            initSample = true;
+//          }
+//        }
+//        if(targetCount==3)
+//        {
+//          radio.println(F("taking sample 3"));
+//          takeSample(3);
+//          if(sampleTaken)
+//          {
+//            initSample = true;
+//          }
+//        }
+//    }
+    if(pidDepth > 2)
+    {     
+        if(initSample)
         {
-          // Calculate the moving average and set the init flag to false
-          mvavgGPS((double) GPS.latitude, (double) GPS.longitude, avgInitGPS);
-          avgInitGPS = false;
-          if (initGPS)
-          {
-            sendGPS();
-            initGPS = false;
-            sinceStart = 0;
-          }
-          logGPS();
-          newGPS = false;
+          radio.println("open1");
+          digitalWrite(SOLENOID_1, HIGH);
+          sinceTrigger = 0;
+          initSample = false;
+          fuck = 1;
         }
-      }
-      else if (sinceStart > GPS_DRIFT_TIME && (initGPS || (goodGPSCount < MIN_GPS_NUM)))
-      {
-          state = ABORT;
-      }
-      else
-      {
-        getGPS();
-        if (newGPS)
-          sendGPS();
-        state = SAMPLE_MISSION;
-        checkSafetySensors();
-      }
+        if(sinceTrigger > 10000 && fuck && doublefuck)
+        {
+          digitalWrite(SOLENOID_1, LOW);
+          radio.println("close1");
+          digitalWrite(SOLENOID_2, HIGH);
+          radio.println("open2");
+          fuck = 0;
+        }
+        if(sinceTrigger > 20000 && !fuck && doublefuck)
+        {
+          digitalWrite(SOLENOID_2, LOW);
+          radio.println("close2");
+          digitalWrite(SOLENOID_3, HIGH);
+          radio.println("open3");
+          fuck = 1;
+          doublefuck = 0;
+        }
+        if(sinceTrigger > 30000 && fuck)
+        {
+          digitalWrite(SOLENOID_3, LOW);
+          radio.println("close3");
+          targetCount = 4;
+          fuck = 0;
+          doublefuck = 0;
+        }      
+    }
+    if (targetCount > 3)
+        state = ASCENT;
     break;
 
-    case SAMPLE_MISSION:
-      setTargetDepth(targetCount);
-      calculatePID();
-      sendPIDSignal();
-      if (initDepthHold)
-      {
-        if (prevError <= HOLD_TOL && pidError <= HOLD_TOL)
-        {
-          sinceErrorInTol = 0;
-          initDepthHold = false;
-        }
-      }
-      if (sinceErrorInTol >= HOLD_TIME)
-      {
-        if (!sampleTaken)
-        {
-          takeSample(targetCount);
-        }
-      }
-      prevError = pidError;
-      prevDepth = avgDepth/*pidDepth*/;
-      if (targetCount > 3)
-        state = ASCENT;
-      break;
-
     case ASCENT:
+      radio.println(F("entering ascent state"));
       ascend();
       if (depthCopy <= 2 && prevDepth <= 2)
       {
@@ -260,44 +268,7 @@ void loop()
     break;
 
     case GPS_FINAL:
-      getGPS();
-      if (GPS.fix)
-      {
-        if (initGPS)
-        {
-          sinceGPS = 0;
-          initGPS = false;
-          logGPS();
-        }
-        if (sinceGPS > GPS_SEND_FREQ)
-        {
-          sendGPS();
-          sinceGPS = 0;
-        }
-      }
-    break;
-
-    case ABORT:
-      /* if(power < MIN_SAFE_POW)
-       * {
-       *  //turn off nonessentials
-       *  lowPow = true;
-       *  //turn off servo
-       *  servo.writeMicroseconds(STOP_SIGNAL);
-       *  noInterrupts();
-       *  //stop logging? (log low power, then somehow permanently close)
-       *  logData(dataString);
-       *  dcawsLog.close();
-       *  // send to GPS_FINAL state to try and send GPS if enough pow
-       *  state = GPS_FINAL;
-       * }
-       * else
-       * {*/
-            //otherwise force log error and jump to ascent state
-            logData(dataString);
-            state = ASCENT;
-       /* }
-       */
+      radio.println(F("made it to GPS Final State"));
     break;
   }
 }

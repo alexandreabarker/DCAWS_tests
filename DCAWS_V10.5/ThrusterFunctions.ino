@@ -3,8 +3,8 @@ void setupThruster()
   //set up esc and send stop signal
   servo.attach(ESC_RC_PW); //attach ESC pin to servo
   servo.writeMicroseconds(STOP_SIGNAL); // send 'stop' signal
-  delay(SETUP_DELAY); // delay to allow theESC to recognize stop signal
-  //radio.println(F("Thruster setup"));
+  delay(1000/*SETUP_DELAY*/); // delay to allow theESC to recognize stop signal
+  radio.println(F("Thruster setup")); 
 }
 
 void checkThruster()
@@ -30,13 +30,13 @@ void sendPIDSignal()
 {
   int signalESC;
   // convert thrust to PWM signal
-  signalESC = (T_GAIN*thrust)+ MIN_PWM;
-  signalESC = round(signalESC);
+  signalESC = (T_GAIN*thrust)+STOP_SIGNAL;
   // account for outliers
-  if(signalESC < MINPWM)
+  if(signalESC < STOP_SIGNAL)
     signalESC = STOP_SIGNAL;
-  if(signalESC > MAX_PWM)
-    signalESC = MAX_PWM;
+  if(signalESC > 1900)
+    signalESC = 1900;
   servo.writeMicroseconds(signalESC);
+  // may need 'delay' to recieve signal
 }
 

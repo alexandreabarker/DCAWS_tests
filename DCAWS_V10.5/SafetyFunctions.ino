@@ -44,6 +44,7 @@ int getInternalPressure()
 int getInternalLeak()
 {
   int sensorValue;
+//  double leakVoltage;
   sensorValue= analogRead(LEAK_SENSOR);
   leakVoltage = (sensorValue*(3.3/RES)); 
   if (leakVoltage < MIN_SAFE_LEAK_V)
@@ -66,28 +67,17 @@ void TapSenseMonitor()
 
 void checkSafetySensors()
 {
-  errorString = "";
   if(!getInternalCurrent())
   {
     state = ABORT;
     //log cause of error here
-    errorString += "Current too low";
   }
   if(!getInternalTemp())
-  {
     state = ABORT;
-    errorString += "Internal Temp too high";
-  } 
   if(!getInternalPressure())
-  {
     state = ABORT;
-    errorString += "Internal Pressure too low";
-  }
   if(getInternalLeak())
-  {
     state = ABORT;
-    errorString += "Leak detected";
-  }
-  //include power here errorString += "Power too low";
+  //include power here
 }
 

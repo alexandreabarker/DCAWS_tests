@@ -1,10 +1,14 @@
 void systemDiagnosis()
 {
+  //delay(1000);
   radio.println(F("Running System Diagnostic"));
-  delay(SETUP_DELAY);
+  //delay(1000);
   checkRadio();
+  //delay(1000);
   checkGPS();
+  //delay(1000);
   checkSD();
+  //delay(1000);
   checkThruster();
   getDepth();
   radio.print(F("Depth sensor detecting depth of "));

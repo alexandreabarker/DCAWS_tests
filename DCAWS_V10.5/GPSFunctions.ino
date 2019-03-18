@@ -10,8 +10,8 @@ void setupGPS()
   GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
   // Request updates on antenna status
   GPS.sendCommand(PGCMD_ANTENNA);
-  delay(SETUP_DELAY);
-  //radio.println(F("GPS setup"));
+  delay(1000/*SETUP_DELAY*/);
+  radio.println(F("GPS setup")); 
 }
 
 void getGPS()
@@ -35,6 +35,7 @@ void checkGPS()
   gpsTimeout = 0;
   while(!newGPS || initCheckGPS)
   {
+    //radio.println("entered checkGPS while");
     initCheckGPS = false;
     getGPS();
     if(gpsTimeout > MAX_GPS_TIME)
@@ -59,6 +60,15 @@ void sendGPS()
   radio.println(avgLon,6);
 }
 
+void logGPS()
+{
+  //CLOSE DEPTH FILE HERE before GPS can open
+  File DCAWS_GPS = SD.open("DCAWS_GPS.csv", FILE_WRITE);
+  DCAWS_GPS.print(avgLat,6);
+  DCAWS_GPS.print(", ");
+  DCAWS_GPS.println(avgLon,6);
+  DCAWS_GPS.close(); /////////////////////////////////////////////////maybe don't close, flush
+}
 
 void mvavgGPS(double lat, double lon, boolean mvInit)
 {
